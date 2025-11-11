@@ -1,0 +1,88 @@
+services:
+
+  n8n-editor:
+    image: n8nio/n8n:latest
+    container_name: n8n-editor-veritapp
+    ports:
+      - 5678:5678
+    networks:
+      - n8n-veritapp
+    restart:
+      unless-stopped
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env
+
+  n8n-workers:
+    image: n8nio/n8n:latest
+    networks:
+      - n8n-veritapp
+    restart:
+      unless-stopped
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env
+    command: worker
+    deploy:
+      replicas: 3
+    environment:
+      - N8N_WORKER_CONCURRENCY=10
+
+
+  n8n-webhooks:
+    image: n8nio/n8n:latest
+    container_name: n8n-webhooks-veritapp
+    ports:
+      - 5677:5678
+    networks:
+      - n8n-veritapp
+    restart:
+      unless-stopped
+    volumes:
+      - ./n8n-data:/home/node/.n8n
+    depends_on:
+      - postgres
+      - redis
+    env_file:
+      - .env
+    command: webhook
+
+
+  postgres:
+    image: ankane/pgvector
+    restart: always
+    container_name: postgres-veritapp
+    volumes:
+      - ./postgres-data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+    environment:
+      POSTGRES_PASSWORD: senha
+      POSTGRES_DB: n8n
+      POSTGRES_USER: postgres
+    networks:
+      - n8n-veritapp
+
+  redis:
+    image: redis:7
+    container_name: redis-veritapp
+    ports:
+      - 6379:6379
+    networks:
+      - n8n-veritapp
+    restart:
+      always
+    volumes:
+      - ./redis-data:/data
+
+networks:
+  n8n-veritapp:
+    driver: bridge
