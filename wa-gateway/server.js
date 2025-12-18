@@ -25,7 +25,7 @@ app.get("/webhook", (req, res) => {
 
 app.post("/webhook", async (req, res) => {
   try {
-    // Validação de assinatura (recomendado)
+    // Validação de assinatura 
     if (APP_SECRET) {
       const sig = req.header("x-hub-signature-256") || "";
       const expected = "sha256=" + crypto
@@ -44,7 +44,7 @@ app.post("/webhook", async (req, res) => {
     const hasMessages = Array.isArray(value?.messages) && value.messages.length > 0;
     const hasStatuses = Array.isArray(value?.statuses) && value.statuses.length > 0;
 
-    // ✅ Ignora ACKs/status (sent/delivered/read) — não executa n8n
+    // Ignora ACKs/status (sent/delivered/read) — não executa n8n
     if (!hasMessages && hasStatuses) {
       return res.sendStatus(200);
     }
@@ -54,7 +54,7 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // ✅ Encaminha só mensagens reais para o n8n-webhooks
+    // Encaminha só mensagens reais para o n8n-webhooks
     const r = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
