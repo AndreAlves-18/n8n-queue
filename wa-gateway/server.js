@@ -1,17 +1,21 @@
 import express from "express";
 import crypto from "crypto";
+import fetch from "node-fetch";
 
 const app = express();
 
-// Precisamos do raw body para validar assinatura (X-Hub-Signature-256)
+// Captura raw body para validação da assinatura
 app.use(express.json({
-  verify: (req, res, buf) => { req.rawBody = buf; }
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
 }));
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "";
 const APP_SECRET = process.env.APP_SECRET || "";
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
 
+// Verificação inicial do webhook (GET)
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -23,55 +27,56 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
+// Recebimento de eventos (POST)
 app.post("/webhook", async (req, res) => {
   try {
-    // Validação de assinatura 
     if (APP_SECRET) {
-      const sig = req.header("x-hub-signature-256") || "";
-      const expected = "sha256=" + crypto
-        .createHmac("sha256", APP_SECRET)
-        .update(req.rawBody)
-        .digest("hex");
+      const sig = req.get("x-hub-signature-256") || "";
+      const expected =
+        "sha256=" +
+        crypto
+          .createHmac("sha256", APP_SECRET)
+          .update(req.rawBody)
+          .digest("hex");
 
-      if (!timingSafeEqual(sig, expected)) {
+      const sigBuf = Buffer.from(sig);
+      const expBuf = Buffer.from(expected);
+
+      if (
+        sigBuf.length !== expBuf.length ||
+        !crypto.timingSafeEqual(sigBuf, expBuf)
+      ) {
         return res.sendStatus(401);
       }
     }
 
-    const body = req.body;
-    const value = body?.entry?.[0]?.changes?.[0]?.value;
+    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
+    const messages = value?.messages;
+    const statuses = value?.statuses;
 
-    const hasMessages = Array.isArray(value?.messages) && value.messages.length > 0;
-    const hasStatuses = Array.isArray(value?.statuses) && value.statuses.length > 0;
-
-    // Ignora ACKs/status (sent/delivered/read) — não executa n8n
-    if (!hasMessages && hasStatuses) {
+    // Ignora status (sent/delivered/read)
+    if (!messages && statuses) {
       return res.sendStatus(200);
     }
 
-    // Se não tem nada útil, ignora também
-    if (!hasMessages) {
+    if (!messages) {
       return res.sendStatus(200);
     }
 
-    // Encaminha só mensagens reais para o n8n-webhooks
+    // Encaminha apenas mensagens reais para o n8n
     const r = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(req.body),
     });
 
     return res.sendStatus(r.ok ? 200 : 502);
   } catch (err) {
+    console.error(err);
     return res.sendStatus(500);
   }
 });
 
-function timingSafeEqual(a, b) {
-  const ab = Buffer.from(a);
-  const bb = Buffer.from(b);
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
-}
-
-app.listen(3000, () => console.log("WA Gateway listening on :3000"));
+app.listen(3000, () => {
+  console.log("WA Gateway listening on :3000");
+});
