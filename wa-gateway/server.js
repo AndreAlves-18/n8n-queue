@@ -1,21 +1,13 @@
 import express from "express";
 import crypto from "crypto";
-import fetch from "node-fetch";
 
 const app = express();
-
-// Captura raw body para validação da assinatura
-app.use(express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
-  }
-}));
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "";
 const APP_SECRET = process.env.APP_SECRET || "";
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
 
-// Verificação inicial do webhook (GET)
+// GET para verificação do webhook
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -27,52 +19,49 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// Recebimento de eventos (POST)
-app.post("/webhook", async (req, res) => {
+// helper: comparação segura
+function safeEqual(a, b) {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
+// POST: usa raw body para assinatura
+app.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   try {
+    // 1) valida assinatura (se APP_SECRET estiver setado)
     if (APP_SECRET) {
       const sig = req.get("x-hub-signature-256") || "";
       const expected =
-        "sha256=" +
-        crypto
-          .createHmac("sha256", APP_SECRET)
-          .update(req.rawBody)
-          .digest("hex");
+        "sha256=" + crypto.createHmac("sha256", APP_SECRET).update(req.body).digest("hex");
 
-      const sigBuf = Buffer.from(sig);
-      const expBuf = Buffer.from(expected);
-
-      if (
-        sigBuf.length !== expBuf.length ||
-        !crypto.timingSafeEqual(sigBuf, expBuf)
-      ) {
+      if (!sig || !safeEqual(sig, expected)) {
         return res.sendStatus(401);
       }
     }
 
-    const value = req.body?.entry?.[0]?.changes?.[0]?.value;
-    const messages = value?.messages;
-    const statuses = value?.statuses;
+    // 2) parse do JSON
+    const body = JSON.parse(req.body.toString("utf8"));
 
-    // Ignora status (sent/delivered/read)
-    if (!messages && statuses) {
-      return res.sendStatus(200);
-    }
+    const value = body?.entry?.[0]?.changes?.[0]?.value;
+    const hasMessages = Array.isArray(value?.messages) && value.messages.length > 0;
+    const hasStatuses = Array.isArray(value?.statuses) && value.statuses.length > 0;
 
-    if (!messages) {
-      return res.sendStatus(200);
-    }
+    // 3) ignora status
+    if (!hasMessages && hasStatuses) return res.sendStatus(200);
+    if (!hasMessages) return res.sendStatus(200);
 
-    // Encaminha apenas mensagens reais para o n8n
+    // 4) encaminha mensagens pro n8n
     const r = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(req.body),
+      body: JSON.stringify(body),
     });
 
     return res.sendStatus(r.ok ? 200 : 502);
-  } catch (err) {
-    console.error(err);
+  } catch (e) {
+    console.error("[ERR]", e);
     return res.sendStatus(500);
   }
 });
