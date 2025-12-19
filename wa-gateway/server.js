@@ -1,10 +1,9 @@
 import express from "express";
 import crypto from "crypto";
-import fetch from "node-fetch";
 
 const app = express();
 
-// Captura raw body para validação da assinatura
+// Captura raw body
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
@@ -12,10 +11,10 @@ app.use(express.json({
 }));
 
 const VERIFY_TOKEN = process.env.VERIFY_TOKEN || "";
-const APP_SECRET = process.env.APP_SECRET || "";
+// FIX 1: .trim() para evitar erro de nova linha em Docker
+const APP_SECRET = (process.env.APP_SECRET || "").trim(); 
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
 
-// Verificação inicial do webhook (GET)
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
   const token = req.query["hub.verify_token"];
@@ -27,11 +26,17 @@ app.get("/webhook", (req, res) => {
   return res.sendStatus(403);
 });
 
-// Recebimento de eventos (POST)
 app.post("/webhook", async (req, res) => {
   try {
     if (APP_SECRET) {
       const sig = req.get("x-hub-signature-256") || "";
+      
+      // FIX 2: Garantir que rawBody existe
+      if (!req.rawBody) {
+        console.error("ERRO: req.rawBody está undefined. O middleware express.json falhou ou content-type incorreto.");
+        return res.sendStatus(400);
+      }
+
       const expected =
         "sha256=" +
         crypto
@@ -41,6 +46,11 @@ app.post("/webhook", async (req, res) => {
 
       const sigBuf = Buffer.from(sig);
       const expBuf = Buffer.from(expected);
+
+      // DEBUG: Remova em produção
+      if (sig !== expected) {
+          console.log(`Mismatch! \nSecret Len: ${APP_SECRET.length} \nRecebido: ${sig} \nGerado:   ${expected}`);
+      }
 
       if (
         sigBuf.length !== expBuf.length ||
@@ -54,7 +64,7 @@ app.post("/webhook", async (req, res) => {
     const messages = value?.messages;
     const statuses = value?.statuses;
 
-    // Ignora status (sent/delivered/read)
+    // Ignora status para não inundar o n8n
     if (!messages && statuses) {
       return res.sendStatus(200);
     }
@@ -63,7 +73,7 @@ app.post("/webhook", async (req, res) => {
       return res.sendStatus(200);
     }
 
-    // Encaminha apenas mensagens reais para o n8n
+    // Encaminha para o n8n
     const r = await fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
