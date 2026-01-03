@@ -64,6 +64,13 @@ app.post("/webhook", async (req, res) => {
     const messages = value?.messages;
     const statuses = value?.statuses;
 
+    const hasMessages = Array.isArray(value?.messages) && value.messages.length > 0;
+    const hasStatuses = Array.isArray(value?.statuses) && value.statuses.length > 0;
+
+    if(!hasMessages && hasStatuses) return res.sendStatus(200);
+    if(!hasMessages) return res.sendStatus(200);
+
+
     // Ignora status para não inundar o n8n
     if (!messages && statuses) {
       return res.sendStatus(200);
@@ -74,13 +81,23 @@ app.post("/webhook", async (req, res) => {
     }
 
     // Encaminha para o n8n
-    const r = await fetch(N8N_WEBHOOK_URL, {
+    // RESPONDE IMEDIATO para evitar retry da Meta
+    res.sendStatus(200);
+    
+    // Encaminha para o n8n em background (sem travar o ACK)
+    fetch(N8N_WEBHOOK_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(req.body),
-    });
-
-    return res.sendStatus(r.ok ? 200 : 502);
+    })
+      .then((r) => {
+        if (!r.ok) console.error("Falha ao enviar ao n8n:", r.status);
+      })
+      .catch((err) => {
+        console.error("Erro ao enviar ao n8n:", err);
+      });
+    return;
+    
   } catch (err) {
     console.error(err);
     return res.sendStatus(500);
