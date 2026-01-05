@@ -1,0 +1,83 @@
+# caminho: /etc/nginx/sites-enabled/n8n
+
+server {
+	listen 80;
+	server_name n8n.brmaisigual.com;
+
+	return 301 https://$host$request_uri;
+
+}
+
+
+server {
+	listen 443 ssl http2;
+	server_name n8n.brmaisigual.com;
+
+	
+	ssl_certificate /etc/letsencrypt/live/n8n.brmaisigual.com/fullchain.pem; # managed by Certbot
+	ssl_certificate_key /etc/letsencrypt/live/n8n.brmaisigual.com/privkey.pem; # managed by Certbot
+	include /etc/letsencrypt/options-ssl-nginx.conf; # managed by Certbot
+	ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem; # managed by Certbot
+	
+
+	location = /wa-webhook{
+		proxy_pass http://127.0.0.1:3010/webhook;
+
+		proxy_set_header Host $host;
+		proxy_set_header X-Real-IP $remote_addr;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+
+	}
+
+
+	location ~ ^/webhook(/|$) {
+		proxy_pass http://127.0.0.1:5677;
+
+		proxy_http_version 1.1;
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Connection "upgrade";
+
+		proxy_set_header Host $host;
+		proxy_set_header X-Real-IP $remote_addr;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+
+		proxy_read_timeout 300s;
+		proxy_buffering off;
+
+
+	}
+	location ~ ^/webhook-test(/|$) {
+		proxy_pass http://127.0.0.1:5678;
+
+		proxy_http_version 1.1;
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Connection "upgrade";
+
+		proxy_set_header Host $host;
+		proxy_set_header X-Real-IP $remote_addr;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+
+		proxy_read_timeout 300s;
+		proxy_buffering off;
+
+	}
+
+	location / {
+		proxy_pass http://127.0.0.1:5678;
+
+		proxy_http_version 1.1;
+		proxy_set_header Upgrade $http_upgrade;
+		proxy_set_header Connection "upgrade";
+
+		proxy_set_header Host $host;
+		proxy_set_header X-Real-IP $remote_addr;
+		proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+		proxy_set_header X-Forwarded-Proto $scheme;
+
+		proxy_read_timeout 300s;
+		proxy_buffering off;
+	}
+}
