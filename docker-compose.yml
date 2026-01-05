@@ -1,5 +1,21 @@
 services:
 
+  wa-gateway:
+    build: ./wa-gateway
+    container_name: wa-gateway-veritapp
+    networks:
+      - n8n-veritapp
+    restart:
+      unless-stopped
+    environment:
+      - VERIFY_TOKEN=veritapp_2025
+      - APP_SECRET=4ada0e086e8c89ed92119b8ca453216d
+      - N8N_WEBHOOK_URL=http://n8n-webhooks:5678/webhook/veritapp_queue
+    ports:
+      - "3010:3000"
+    depends_on:
+      - n8n-webhooks
+
   n8n-editor:
     image: n8nio/n8n:latest
     container_name: n8n-editor-veritapp
@@ -12,8 +28,10 @@ services:
     volumes:
       - ./n8n-data:/home/node/.n8n
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
 
@@ -26,13 +44,15 @@ services:
     volumes:
       - ./n8n-data:/home/node/.n8n
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     command: worker
     deploy:
-      replicas: 3
+      replicas: 2
     environment:
       - N8N_WORKER_CONCURRENCY=10
 
@@ -49,8 +69,10 @@ services:
     volumes:
       - ./n8n-data:/home/node/.n8n
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     env_file:
       - .env
     command: webhook
@@ -59,7 +81,6 @@ services:
   postgres:
     image: ankane/pgvector
     restart: always
-    container_name: postgres-veritapp
     volumes:
       - ./postgres-data:/var/lib/postgresql/data
     ports:
@@ -70,10 +91,15 @@ services:
       POSTGRES_USER: postgres
     networks:
       - n8n-veritapp
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres_Veritapp -d n8n"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 
   redis:
     image: redis:7
-    container_name: redis-veritapp
     ports:
       - 6379:6379
     networks:
@@ -82,6 +108,13 @@ services:
       always
     volumes:
       - ./redis-data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 
 networks:
   n8n-veritapp:
